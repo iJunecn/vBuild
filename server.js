@@ -162,6 +162,23 @@ app.use(
     target: 'http://127.0.0.1:8080',
     changeOrigin: true,
     ws: true,
+    onProxyReq(proxyReq, req) {
+      proxyReq.setHeader('host', '127.0.0.1:8080');
+
+      const origin = req.headers.origin;
+      if (origin) {
+        proxyReq.setHeader('origin', 'http://127.0.0.1:8080');
+      }
+
+      const referer = req.headers.referer;
+      if (referer) {
+        proxyReq.setHeader('referer', 'http://127.0.0.1:8080/');
+      }
+    },
+    onProxyReqWs(proxyReq) {
+      proxyReq.setHeader('host', '127.0.0.1:8080');
+      proxyReq.setHeader('origin', 'http://127.0.0.1:8080');
+    },
     pathRewrite: {
       '^/workflow': '/'
     }
