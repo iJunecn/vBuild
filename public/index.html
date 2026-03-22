@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>USTB vBuild UI</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div id="userArea" class="user-area">
+        <button id="loginBtn" class="login-btn">登录</button>
+      </div>
+    </header>
+
+    <main class="center-wrap">
+      <h1>USTB vBuild UI</h1>
+      <p class="subtitle">像素北科中转站</p>
+      <a id="workflowBtn" class="workflow-btn disabled" href="javascript:void(0)">工作流</a>
+    </main>
+
+    <script>
+      const userArea = document.getElementById('userArea');
+      const loginBtn = document.getElementById('loginBtn');
+      const workflowBtn = document.getElementById('workflowBtn');
+
+      loginBtn.addEventListener('click', () => {
+        window.location.href = '/auth/login';
+      });
+
+      function setLoggedOut() {
+        workflowBtn.classList.add('disabled');
+        workflowBtn.title = '登录后使用';
+        workflowBtn.href = 'javascript:void(0)';
+      }
+
+      function setLoggedIn(user) {
+        workflowBtn.classList.remove('disabled');
+        workflowBtn.title = '';
+        workflowBtn.href = '/workflow/';
+
+        userArea.innerHTML = `
+          <div class="user-profile">
+            <img src="${user.avatar}" alt="avatar" referrerpolicy="no-referrer" />
+            <span>${user.nickname}</span>
+            <button id="logoutBtn" class="logout-btn">退出</button>
+          </div>
+        `;
+
+        const logoutBtn = document.getElementById('logoutBtn');
+        logoutBtn.addEventListener('click', async () => {
+          await fetch('/auth/logout', { method: 'POST' });
+          window.location.reload();
+        });
+      }
+
+      async function bootstrap() {
+        setLoggedOut();
+
+        const url = new URL(window.location.href);
+        const err = url.searchParams.get('error');
+        if (err) {
+          console.warn('OAuth error:', err);
+          url.searchParams.delete('error');
+          window.history.replaceState({}, '', url.toString());
+        }
+
+        try {
+          const resp = await fetch('/api/me', { credentials: 'include' });
+          if (!resp.ok) {
+            return;
+          }
+
+          const data = await resp.json();
+          if (data.authenticated) {
+            setLoggedIn(data.user);
+          }
+        } catch (_) {}
+      }
+
+      bootstrap();
+    </script>
+  </body>
+</html>
