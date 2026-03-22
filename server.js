@@ -10,6 +10,13 @@ const app = express();
 
 const PORT = Number(process.env.PORT || 8000);
 const BASE_URL = process.env.BASE_URL || 'https://ui.ustb.world';
+const EXTERNAL_HOST = (() => {
+  try {
+    return new URL(BASE_URL).hostname;
+  } catch (_) {
+    return 'ui.ustb.world';
+  }
+})();
 const SESSION_SECRET = process.env.SESSION_SECRET || 'replace-this-in-production';
 const COOKIE_SECURE =
   process.env.COOKIE_SECURE === undefined
@@ -160,24 +167,13 @@ app.use(
   requireAuth,
   createProxyMiddleware({
     target: 'http://127.0.0.1:8080',
-    changeOrigin: true,
+    changeOrigin: false,
     ws: true,
-    onProxyReq(proxyReq, req) {
-      proxyReq.setHeader('host', '127.0.0.1:8080');
-
-      const origin = req.headers.origin;
-      if (origin) {
-        proxyReq.setHeader('origin', 'http://127.0.0.1:8080');
-      }
-
-      const referer = req.headers.referer;
-      if (referer) {
-        proxyReq.setHeader('referer', 'http://127.0.0.1:8080/');
-      }
+    onProxyReq(proxyReq) {
+      proxyReq.setHeader('host', EXTERNAL_HOST);
     },
     onProxyReqWs(proxyReq) {
-      proxyReq.setHeader('host', '127.0.0.1:8080');
-      proxyReq.setHeader('origin', 'http://127.0.0.1:8080');
+      proxyReq.setHeader('host', EXTERNAL_HOST);
     },
     pathRewrite: {
       '^/workflow': '/'
