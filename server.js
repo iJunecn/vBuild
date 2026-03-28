@@ -10,6 +10,15 @@ const app = express();
 
 const PORT = Number(process.env.PORT || 8000);
 const BASE_URL = process.env.BASE_URL || 'https://ui.ustb.world';
+const EXTERNAL_URL = (() => {
+  try {
+    return new URL(BASE_URL);
+  } catch (_) {
+    return new URL('https://ui.ustb.world');
+  }
+})();
+const EXTERNAL_HOST = EXTERNAL_URL.host;
+const EXTERNAL_ORIGIN = EXTERNAL_URL.origin;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'replace-this-in-production';
 const COOKIE_SECURE =
   process.env.COOKIE_SECURE === undefined
@@ -157,17 +166,25 @@ function requireAuth(req, res, next) {
 
 const workflowProxy = createProxyMiddleware({
   target: 'http://127.0.0.1:8080',
-  changeOrigin: true,
+  changeOrigin: false,
   ws: true,
   xfwd: true,
   pathRewrite: (pathValue) => {
     const rewritten = pathValue.replace(/^\/workflow(?=\/|$)/, '');
     return rewritten || '/';
   },
-  onProxyReq(proxyReq) {
+  onProxyReq(proxyReq, req) {
+    proxyReq.setHeader('host', EXTERNAL_HOST);
+    if (req.headers.origin) {
+      proxyReq.setHeader('origin', EXTERNAL_ORIGIN);
+    }
     proxyReq.setHeader('x-forwarded-prefix', '/workflow');
   },
-  onProxyReqWs(proxyReq) {
+  onProxyReqWs(proxyReq, req) {
+    proxyReq.setHeader('host', EXTERNAL_HOST);
+    if (req.headers.origin) {
+      proxyReq.setHeader('origin', EXTERNAL_ORIGIN);
+    }
     proxyReq.setHeader('x-forwarded-prefix', '/workflow');
   }
 });
