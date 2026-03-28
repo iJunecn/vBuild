@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>USTB vBuild UI</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/_gateway/styles.css" />
   </head>
   <body>
     <header class="topbar">
@@ -14,30 +14,35 @@
     </header>
 
     <main class="center-wrap">
-      <h1>USTB vBuild UI</h1>
-      <p class="subtitle">像素北科中转站</p>
-      <a id="workflowBtn" class="workflow-btn disabled" href="javascript:void(0)">工作流</a>
+      <h1>USTB vBuild Gateway</h1>
+      <p class="subtitle">统一登录后进入内网应用</p>
+      <a id="enterBtn" class="workflow-btn disabled" href="javascript:void(0)">进入应用</a>
     </main>
 
     <script>
       const userArea = document.getElementById('userArea');
       const loginBtn = document.getElementById('loginBtn');
-      const workflowBtn = document.getElementById('workflowBtn');
+      const enterBtn = document.getElementById('enterBtn');
+
+      const rd = (() => {
+        const url = new URL(window.location.href);
+        return url.searchParams.get('rd') || '/';
+      })();
 
       loginBtn.addEventListener('click', () => {
-        window.location.href = '/auth/login';
+        window.location.href = `/auth/login?rd=${encodeURIComponent(rd)}`;
       });
 
       function setLoggedOut() {
-        workflowBtn.classList.add('disabled');
-        workflowBtn.title = '登录后使用';
-        workflowBtn.href = 'javascript:void(0)';
+        enterBtn.classList.add('disabled');
+        enterBtn.title = '登录后使用';
+        enterBtn.href = 'javascript:void(0)';
       }
 
       function setLoggedIn(user) {
-        workflowBtn.classList.remove('disabled');
-        workflowBtn.title = '';
-        workflowBtn.href = '/workflow/';
+        enterBtn.classList.remove('disabled');
+        enterBtn.title = '';
+        enterBtn.href = rd;
 
         userArea.innerHTML = `
           <div class="user-profile">

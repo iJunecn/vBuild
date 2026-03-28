@@ -10,6 +10,7 @@ const app = express();
 
 const PORT = Number(process.env.PORT || 8000);
 const BASE_URL = process.env.BASE_URL || 'https://ui.ustb.world';
+const UPSTREAM_URL = process.env.UPSTREAM_URL || 'http://127.0.0.1:8080';
 const EXTERNAL_URL = (() => {
   try {
     return new URL(BASE_URL);
@@ -45,6 +46,16 @@ function createState() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
+function sanitizeReturnPath(value) {
+  if (!value || typeof value !== 'string') {
+    return '/';
+  }
+  if (!value.startsWith('/') || value.startsWith('//')) {
+    return '/';
+  }
+  return value;
+}
+
 app.set('trust proxy', 1);
 app.use(
   cookieSession({
@@ -58,7 +69,7 @@ app.use(
 );
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use('/_gateway', express.static(path.join(__dirname, 'public')));
 
 if (!OAUTH.clientSecret) {
   throw new Error('Missing OAUTH_CLIENT_SECRET environment variable');
@@ -67,6 +78,8 @@ if (!OAUTH.clientSecret) {
 app.get('/auth/login', (req, res) => {
   const state = createState();
   req.session.oauthState = state;
+  const returnTo = sanitizeReturnPath(req.query.rd || req.session.returnTo || '/');
+  req.session.returnTo = returnTo;
 
   const params = new URLSearchParams({
     client_id: OAUTH.clientId,
@@ -135,9 +148,12 @@ app.get('/oauth/callback', async (req, res) => {
     req.session.accessToken = accessToken;
     delete req.session.oauthState;
 
-    return res.redirect('/');
+    const returnTo = sanitizeReturnPath(req.session.returnTo || '/');
+    delete req.session.returnTo;
+
+    return res.redirect(returnTo);
   } catch (err) {
-    return res.redirect('/?error=oauth_failed');
+    return res.redirect('/gateway?error=oauth_failed');
   }
 });
 
@@ -159,37 +175,35 @@ app.get('/api/me', (req, res) => {
 
 function requireAuth(req, res, next) {
   if (!req.session?.user) {
-    return res.status(401).send('请先登录');
+    req.session.returnTo = sanitizeReturnPath(req.originalUrl || '/');
+    const rd = encodeURIComponent(req.session.returnTo);
+    return res.redirect(`/gateway?rd=${rd}`);
   }
   return next();
 }
 
-const workflowProxy = createProxyMiddleware({
-  target: 'http://127.0.0.1:8080',
+const upstreamProxy = createProxyMiddleware({
+  target: UPSTREAM_URL,
   changeOrigin: false,
   ws: true,
   xfwd: true,
-  pathRewrite: (pathValue) => {
-    const rewritten = pathValue.replace(/^\/workflow(?=\/|$)/, '');
-    return rewritten || '/';
-  },
   onProxyReq(proxyReq, req) {
     proxyReq.setHeader('host', EXTERNAL_HOST);
     if (req.headers.origin) {
       proxyReq.setHeader('origin', EXTERNAL_ORIGIN);
     }
-    proxyReq.setHeader('x-forwarded-prefix', '/workflow');
   },
   onProxyReqWs(proxyReq, req) {
     proxyReq.setHeader('host', EXTERNAL_HOST);
     if (req.headers.origin) {
       proxyReq.setHeader('origin', EXTERNAL_ORIGIN);
     }
-    proxyReq.setHeader('x-forwarded-prefix', '/workflow');
   }
 });
 
-app.use('/workflow', requireAuth, workflowProxy);
+app.get('/gateway', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 app.get('/healthz', (req, res) => {
   res.json({ ok: true });
@@ -202,19 +216,22 @@ app.use((err, req, res, next) => {
   return next(err);
 });
 
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+app.use(requireAuth, upstreamProxy);
 
 const server = app.listen(PORT, () => {
   console.log(`vBuild UI gateway running on ${PORT}`);
   console.log(`BASE_URL=${BASE_URL}`);
+  console.log(`UPSTREAM_URL=${UPSTREAM_URL}`);
 });
 
 server.on('upgrade', (req, socket, head) => {
-  if (req.url && req.url.startsWith('/workflow')) {
-    workflowProxy.upgrade(req, socket, head);
+  if (req.url && req.url.startsWith('/_gateway')) {
+    socket.destroy();
     return;
   }
-  socket.destroy();
+  if (req.url && req.url.startsWith('/gateway')) {
+    socket.destroy();
+    return;
+  }
+  upstreamProxy.upgrade(req, socket, head);
 });
