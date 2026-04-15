@@ -8,9 +8,9 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const app = express();
 
-const PORT = Number(process.env.PORT || 8000);
+const PORT = Number(process.env.PORT || 18000);
 const BASE_URL = process.env.BASE_URL || 'https://ui.ustb.world';
-const UPSTREAM_URL = process.env.UPSTREAM_URL || 'http://127.0.0.1:8080';
+const UPSTREAM_URL = process.env.UPSTREAM_URL || 'http://122.225.39.158:31204';
 const EXTERNAL_URL = (() => {
   try {
     return new URL(BASE_URL);
@@ -18,8 +18,15 @@ const EXTERNAL_URL = (() => {
     return new URL('https://ui.ustb.world');
   }
 })();
-const EXTERNAL_HOST = EXTERNAL_URL.host;
-const EXTERNAL_ORIGIN = EXTERNAL_URL.origin;
+const UPSTREAM = (() => {
+  try {
+    return new URL(UPSTREAM_URL);
+  } catch (_) {
+    return new URL('http://122.225.39.158:31204');
+  }
+})();
+const UPSTREAM_HOST = UPSTREAM.host;
+const UPSTREAM_ORIGIN = UPSTREAM.origin;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'replace-this-in-production';
 const COOKIE_SECURE =
   process.env.COOKIE_SECURE === undefined
@@ -182,22 +189,35 @@ function requireAuth(req, res, next) {
   return next();
 }
 
+function rewriteJsonBody(proxyReq, req) {
+  if (req.body && !req.readable) {
+    const bodyData = JSON.stringify(req.body);
+    proxyReq.setHeader('Content-Type', 'application/json');
+    proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+    proxyReq.write(bodyData);
+  }
+}
+
 const upstreamProxy = createProxyMiddleware({
   target: UPSTREAM_URL,
-  changeOrigin: false,
+  changeOrigin: true,
   ws: true,
   xfwd: true,
+  timeout: 60000,
+  proxyTimeout: 60000,
   onProxyReq(proxyReq, req) {
-    proxyReq.setHeader('host', EXTERNAL_HOST);
+    proxyReq.setHeader('host', UPSTREAM_HOST);
     if (req.headers.origin) {
-      proxyReq.setHeader('origin', EXTERNAL_ORIGIN);
+      proxyReq.setHeader('origin', UPSTREAM_ORIGIN);
     }
+    rewriteJsonBody(proxyReq, req);
   },
   onProxyReqWs(proxyReq, req) {
-    proxyReq.setHeader('host', EXTERNAL_HOST);
+    proxyReq.setHeader('host', UPSTREAM_HOST);
     if (req.headers.origin) {
-      proxyReq.setHeader('origin', EXTERNAL_ORIGIN);
+      proxyReq.setHeader('origin', UPSTREAM_ORIGIN);
     }
+    rewriteJsonBody(proxyReq, req);
   }
 });
 
@@ -218,6 +238,15 @@ app.use((err, req, res, next) => {
 
 app.use(requireAuth, upstreamProxy);
 
+const sessionMiddleware = cookieSession({
+  name: 'vbuild_session',
+  keys: [SESSION_SECRET],
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+  sameSite: 'lax',
+  secure: COOKIE_SECURE,
+  httpOnly: true
+});
+
 const server = app.listen(PORT, () => {
   console.log(`vBuild UI gateway running on ${PORT}`);
   console.log(`BASE_URL=${BASE_URL}`);
@@ -233,5 +262,12 @@ server.on('upgrade', (req, socket, head) => {
     socket.destroy();
     return;
   }
-  upstreamProxy.upgrade(req, socket, head);
+  sessionMiddleware(req, { setHeader: () => {} }, (err) => {
+    if (err || !req.session || !req.session.user) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    upstreamProxy.upgrade(req, socket, head);
+  });
 });
